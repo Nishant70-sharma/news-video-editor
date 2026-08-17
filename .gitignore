@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.local
+
+server/storage/uploads/*
+server/storage/thumbnails/*
+server/storage/logos/*
+server/storage/images/*
+server/storage/music/*
+server/storage/projects/*
+server/storage/exports/*
+server/storage/tmp/*
+!server/storage/**/.gitkeep
+
+server/vendor/
