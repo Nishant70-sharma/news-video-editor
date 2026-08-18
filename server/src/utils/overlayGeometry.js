@@ -70,6 +70,18 @@ function watermarkTextBox() {
 }
 
 /**
+ * Lower-third nameplate (reporter/expert name + title) sits just above the headline banner's
+ * lower-third band (0.72-0.88) and the subscribe bar (0.84-0.91), in the clear 0.58-0.70 strip,
+ * so the two never overlap regardless of which are enabled together.
+ */
+function nameplateBox(nameplate) {
+  const widthPct = 0.34;
+  const heightPct = 0.09;
+  const xPct = nameplate?.position === 'bottom-right' ? 1 - widthPct - 0.02 : 0.02;
+  return { xPct, yPct: 0.6, widthPct, heightPct };
+}
+
+/**
  * Font sizes/padding/stroke widths in project JSON are literal pixel numbers tuned by eye
  * against a "reference" canvas width for each aspect ratio (its 1080p width). The live preview
  * renders at whatever pixel size its container happens to be (often much smaller than export),
@@ -97,5 +109,6 @@ module.exports = {
   tickerBox,
   subscribeBarBox,
   watermarkTextBox,
+  nameplateBox,
   getFontScale
 };

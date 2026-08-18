@@ -41,6 +41,12 @@ async function renderOverlayAssets(project, outW, outH, tmpDir) {
     assets.tickerPngPath = tickerPath;
   }
 
+  if (project.nameplate?.enabled && (project.nameplate?.name || project.nameplate?.title)) {
+    const nameplatePath = path.join(tmpDir, 'nameplate.png');
+    await overlayRenderer.renderNameplate(project.nameplate, project.headline?.bgColor, outW, outH, nameplatePath, fontScale);
+    assets.nameplatePngPath = nameplatePath;
+  }
+
   if (project.subscribeBar?.enabled) {
     const subscribeBarPath = path.join(tmpDir, 'subscribe-bar.png');
     await overlayRenderer.renderSubscribeBar(project.subscribeBar, outW, outH, subscribeBarPath);
@@ -269,6 +275,20 @@ async function runExport(jobId, projectId) {
     else if (mode === 'pip') mainHasAudioCache = await probeHasAudio(baseSources.main.path);
     else mainHasAudioCache = await probeHasAudio(baseSources.path);
     return mainHasAudioCache;
+  }
+
+  // Custom Audio Replacement: entirely discards whatever audio the source video/clips carried
+  // (named pad or raw input-0 stream alike — replacing mainAudioLabel here means neither is ever
+  // referenced downstream) and substitutes the uploaded track instead. Runs BEFORE music mixing
+  // so a background-music track, if also enabled, ducks under this replacement audio exactly like
+  // it would duck under the original speech — voiceover-over-video is the intended use case.
+  if (project.customAudio?.assetUrl) {
+    const customIdx = inputs.length;
+    inputs.push({ path: resolveMediaPath(project.customAudio.assetUrl), options: ['-stream_loop', '-1'] });
+    filters.push(
+      `[${customIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=${durationSec},asetpts=PTS-STARTPTS[customAudio]`
+    );
+    mainAudioLabel = 'customAudio';
   }
 
   if (project.music?.assetUrl) {

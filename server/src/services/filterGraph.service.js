@@ -1,4 +1,4 @@
-const { resolveBoxPx, subscribeBarBox, watermarkTextBox } = require('../utils/overlayGeometry');
+const { resolveBoxPx, subscribeBarBox, watermarkTextBox, nameplateBox } = require('../utils/overlayGeometry');
 
 /** Color grading presets, applied once to the whole base video before any overlay compositing. */
 const COLOR_GRADE_FILTERS = {
@@ -393,6 +393,22 @@ function buildFilterGraph(project, assets, baseSources) {
     const box = resolveBoxPx({ xPct: 0, yPct: 0.92, widthPct: 1, heightPct: 0.08 }, outW, outH);
     filters.push(`[${current}][${srcLabel}]overlay=x='${xExpr}':y=${box.y}:eval=frame[withTicker]`);
     current = 'withTicker';
+  }
+
+  if (assets.nameplatePngPath) {
+    const idx = inputs.length;
+    inputs.push({ path: assets.nameplatePngPath, options: ['-loop', '1'] });
+    const animation = project.nameplate?.animation;
+    const box = resolveBoxPx(nameplateBox(project.nameplate), outW, outH);
+    const srcLabel = withEntranceFade(filters, `${idx}:v`, animation, 'nameplate');
+    const pos = entranceOverlayXY(animation, outW, outH, box.x, box.y);
+    // durationSec === 0 means "persist for the whole video" (no enable clause at all); otherwise
+    // it disappears after that many seconds, like a real broadcast lower-third that shows briefly
+    // when a reporter starts talking rather than sitting on screen the entire time.
+    const durationSec = project.nameplate?.durationSec || 0;
+    const enableClause = durationSec > 0 ? `:enable='lt(t,${durationSec})'` : '';
+    filters.push(`[${current}][${srcLabel}]overlay=${overlayPositionFragment(pos)}${enableClause}[withNameplate]`);
+    current = 'withNameplate';
   }
 
   if (assets.subscribeBarPngPath) {

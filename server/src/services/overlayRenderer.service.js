@@ -2,7 +2,14 @@ const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
-const { resolveBoxPx, headlineBannerBox, tickerBox, subscribeBarBox, watermarkTextBox } = require('../utils/overlayGeometry');
+const {
+  resolveBoxPx,
+  headlineBannerBox,
+  tickerBox,
+  subscribeBarBox,
+  watermarkTextBox,
+  nameplateBox
+} = require('../utils/overlayGeometry');
 
 /** Blends a hex color with black at the given alpha, for a translucent (not fully opaque) fill. */
 function hexToRgba(hex, alpha) {
@@ -498,6 +505,57 @@ async function renderWatermarkText(watermark, bandColor, canvasW, canvasH, outPa
   return { box };
 }
 
+/**
+ * Renders the lower-third nameplate (reporter/expert name + title) — a colored card with a
+ * left accent stripe, matching classic broadcast lower-thirds. Sized to just its own box (not
+ * the full canvas) since it's positioned via a plain overlay=x:y, same as the ticker/subscribe bar.
+ * `templateBgColor` (the current template's headline.bgColor) is the default fill when the user
+ * hasn't picked a specific nameplate color, so it reads as branded out of the box.
+ */
+async function renderNameplate(nameplate, templateBgColor, canvasW, canvasH, outPath, scale = 1) {
+  ensureFontsRegistered();
+  const box = resolveBoxPx(nameplateBox(nameplate), canvasW, canvasH);
+  const canvas = createCanvas(box.width, box.height);
+  const ctx = canvas.getContext('2d');
+
+  const bgColor = nameplate.bgColor || templateBgColor || '#1e3a8a';
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  ctx.fillStyle = bgColor;
+  roundRectPath(ctx, 0, 0, box.width, box.height, 6 * scale);
+  ctx.fill();
+  ctx.restore();
+
+  const stripeW = box.width * 0.02;
+  ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha = 0.85;
+  ctx.fillRect(0, 0, stripeW, box.height);
+  ctx.globalAlpha = 1;
+
+  const padding = box.width * 0.06;
+  const nameSize = box.height * 0.34;
+  const titleSize = box.height * 0.24;
+
+  drawStyledText(ctx, nameplate.name || '', padding, box.height * 0.36, {
+    font: `bold ${nameSize}px "${config.fonts.body}"`,
+    color: '#ffffff',
+    shadow: true,
+    stroke: false
+  });
+
+  if (nameplate.title) {
+    drawStyledText(ctx, nameplate.title, padding, box.height * 0.72, {
+      font: `${titleSize}px "${config.fonts.body}"`,
+      color: '#e5e7eb',
+      shadow: false,
+      stroke: false
+    });
+  }
+
+  fs.writeFileSync(outPath, canvas.toBuffer('image/png'));
+  return { box };
+}
+
 module.exports = {
   renderHeadlineBanner,
   renderTicker,
@@ -506,6 +564,7 @@ module.exports = {
   renderDateTimeStamp,
   renderSubscribeBar,
   renderWatermarkText,
+  renderNameplate,
   renderStingerCard,
   renderOutroCard,
   ensureFontsRegistered

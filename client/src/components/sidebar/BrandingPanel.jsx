@@ -1,5 +1,6 @@
 import { useProjectStore } from '../../store/useProjectStore';
 import Slider from '../common/Slider';
+import ColorPicker from '../common/ColorPicker';
 
 const COLOR_GRADES = [
   { id: 'none', label: 'None' },
@@ -88,6 +89,57 @@ export default function BrandingPanel() {
               step={0.5}
               unit="s"
               onChange={(v) => updateField('outro.durationSec', v)}
+            />
+          </>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-news-border bg-black/20 p-3">
+        <Toggle
+          label="Lower Third Nameplate (reporter/expert name)"
+          checked={project.nameplate.enabled}
+          onChange={(v) => updateField('nameplate.enabled', v)}
+        />
+        <p className="mb-2 mt-1 text-xs text-slate-500">
+          A small name + title card, separate from the headline banner — classic broadcast style.
+        </p>
+        {project.nameplate.enabled && (
+          <>
+            <TextField label="Name" value={project.nameplate.name} onChange={(v) => updateField('nameplate.name', v)} placeholder="Rahul Sharma" />
+            <TextField
+              label="Title / Location"
+              value={project.nameplate.title}
+              onChange={(v) => updateField('nameplate.title', v)}
+              placeholder="Reporting from Delhi"
+            />
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {['bottom-left', 'bottom-right'].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => updateField('nameplate.position', p)}
+                  className={`rounded-md border py-1.5 text-xs capitalize ${
+                    project.nameplate.position === p
+                      ? 'border-news-accent2 bg-news-accent2/20 text-white'
+                      : 'border-news-border text-slate-400'
+                  }`}
+                >
+                  {p.replace('-', ' ')}
+                </button>
+              ))}
+            </div>
+            <Slider
+              label="Show For (0 = whole video)"
+              value={project.nameplate.durationSec}
+              min={0}
+              max={15}
+              step={1}
+              unit="s"
+              onChange={(v) => updateField('nameplate.durationSec', v)}
+            />
+            <ColorPicker
+              label="Card Color"
+              value={project.nameplate.bgColor || project.headline.bgColor}
+              onChange={(v) => updateField('nameplate.bgColor', v)}
             />
           </>
         )}

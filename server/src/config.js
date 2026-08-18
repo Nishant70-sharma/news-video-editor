@@ -27,5 +27,5 @@ module.exports = {
   allowedVideoExt: ['.mp4', '.mov', '.mkv', '.webm'],
   allowedLogoExt: ['.png', '.svg', '.gif'],
   allowedImageExt: ['.jpg', '.jpeg', '.png', '.webp'],
-  allowedAudioExt: ['.mp3', '.wav', '.m4a']
+  allowedAudioExt: ['.mp3', '.wav', '.m4a', '.webm', '.ogg', '.mp4']
 };
