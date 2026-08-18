@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useProjectStore } from '../../store/useProjectStore';
 import Slider from '../common/Slider';
 import ColorPicker from '../common/ColorPicker';
+import { previewOutro } from '../../api/exportJob';
 
 const COLOR_GRADES = [
   { id: 'none', label: 'None' },
@@ -36,6 +38,28 @@ function Toggle({ label, checked, onChange }) {
 export default function BrandingPanel() {
   const project = useProjectStore((s) => s.project);
   const updateField = useProjectStore((s) => s.updateField);
+  const [outroPreviewUrl, setOutroPreviewUrl] = useState(null);
+  const [outroPreviewBusy, setOutroPreviewBusy] = useState(false);
+  const [outroPreviewError, setOutroPreviewError] = useState(null);
+
+  async function handlePreviewOutro() {
+    setOutroPreviewError(null);
+    setOutroPreviewBusy(true);
+    setOutroPreviewUrl(null);
+    try {
+      const url = await previewOutro({
+        outro: project.outro,
+        logo: project.logo,
+        aspectRatio: project.aspectRatio,
+        resolution: '720p'
+      });
+      setOutroPreviewUrl(`${url}?t=${Date.now()}`);
+    } catch (err) {
+      setOutroPreviewError(err.response?.data?.error || err.message);
+    } finally {
+      setOutroPreviewBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -90,6 +114,27 @@ export default function BrandingPanel() {
               unit="s"
               onChange={(v) => updateField('outro.durationSec', v)}
             />
+            <button
+              onClick={handlePreviewOutro}
+              disabled={outroPreviewBusy}
+              className="mt-2 w-full rounded-md border border-news-border py-2 text-xs text-slate-300 hover:border-news-accent2 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {outroPreviewBusy ? 'Rendering preview…' : '🔍 Preview Outro'}
+            </button>
+            <p className="mt-1 text-xs text-slate-500">
+              Renders just this outro on its own (fast) so you can check it before it's attached
+              to your full video.
+            </p>
+            {outroPreviewError && <p className="mt-2 text-xs text-red-400">{outroPreviewError}</p>}
+            {outroPreviewUrl && (
+              <video
+                key={outroPreviewUrl}
+                src={outroPreviewUrl}
+                controls
+                autoPlay
+                className="mt-2 w-full rounded-md border border-news-border"
+              />
+            )}
           </>
         )}
       </section>

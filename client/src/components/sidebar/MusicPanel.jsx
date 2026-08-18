@@ -5,8 +5,12 @@ import AudioRecorder from '../common/AudioRecorder';
 import { uploadMusic } from '../../api/music';
 import { useProjectStore } from '../../store/useProjectStore';
 
-export default function MusicPanel() {
+export default function MusicPanel({ videoRef }) {
   const project = useProjectStore((s) => s.project);
+  // The recorder can only auto-play/sync a real videoRef-backed <video> element, which only
+  // exists in 'single'/'pip' source mode (see VideoPreview.jsx) — elsewhere it still records
+  // fine, just without the auto-play-along convenience.
+  const syncableVideoRef = project.sourceMode === 'single' || project.sourceMode === 'pip' ? videoRef : null;
   const updateField = useProjectStore((s) => s.updateField);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -55,7 +59,7 @@ export default function MusicPanel() {
           sublabel="MP3, WAV, M4A"
           onFile={handleCustomAudioFile}
         />
-        <AudioRecorder onRecorded={handleCustomAudioFile} />
+        <AudioRecorder onRecorded={handleCustomAudioFile} videoRef={syncableVideoRef} />
         {customBusy && <p className="mt-2 text-xs text-slate-400">Uploading recorded audio…</p>}
         {customError && <p className="mt-2 text-xs text-red-400">{customError}</p>}
 

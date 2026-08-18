@@ -22,11 +22,11 @@ const PANELS = {
   export: ExportPanel
 };
 
-export default function PropertiesPanel({ section }) {
+export default function PropertiesPanel({ section, videoRef }) {
   const Panel = PANELS[section] || MediaPanel;
   return (
     <div className="w-full shrink-0 overflow-y-auto border-t border-news-border bg-news-panel p-4 md:h-full md:w-80 md:border-t-0 md:border-l">
-      <Panel />
+      <Panel videoRef={videoRef} />
     </div>
   );
 }

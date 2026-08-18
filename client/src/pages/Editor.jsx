@@ -55,7 +55,7 @@ export default function Editor() {
         </div>
         <Timeline videoRef={videoRef} />
       </div>
-      <PropertiesPanel section={section} />
+      <PropertiesPanel section={section} videoRef={videoRef} />
     </DashboardLayout>
   );
 }

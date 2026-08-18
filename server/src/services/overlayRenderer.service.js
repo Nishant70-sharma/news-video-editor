@@ -1,4 +1,4 @@
-const { createCanvas, GlobalFonts, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
@@ -397,81 +397,82 @@ function drawBellIcon(ctx, x, y, size, color) {
 }
 
 /**
- * Renders a full-frame Subscribe/Like/Share outro card — an opaque standalone frame appended
- * after the main video via introOutro.service.js's concat, matching the classic YouTube
- * end-of-video call-to-action layout (logo badge + bell/subscribe, like, share).
- * `logoAsset` is `{ path, isAnimated }` from assetPreprocess.service.js, or null if no logo is
- * configured — when animated (GIF), only its first frame is drawn since this card is a single
- * static frame.
+ * Renders the outro as SEPARATE layers (background, one badge per Subscribe/Like/Share, channel
+ * text) instead of one flat card — introOutro.service.js composites them with staggered "pop in"
+ * timing (scale-up + fade, one after another) so the outro plays like a small animated bumper
+ * clip rather than a static card that just zooms as a whole. The logo isn't rendered here at all:
+ * it's overlaid directly from its own already-prepared asset file in introOutro.service.js, same
+ * technique (and circular masking) as the corner logo elsewhere, just with its own pop-in timing.
  */
-async function renderOutroCard(outro, logoAsset, canvasW, canvasH, outPath) {
+async function renderOutroAssets(outro, canvasW, canvasH, tmpDir) {
   ensureFontsRegistered();
-  const canvas = createCanvas(canvasW, canvasH);
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#111318';
-  ctx.fillRect(0, 0, canvasW, canvasH);
-
-  const centerX = canvasW / 2;
-  let logoBottomY = canvasH * 0.18;
-
-  if (logoAsset) {
-    try {
-      const img = await loadImage(logoAsset.path);
-      const logoSize = canvasH * 0.22;
-      const logoY = canvasH * 0.08;
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.5)';
-      ctx.shadowBlur = 16;
-      ctx.beginPath();
-      ctx.arc(centerX, logoY + logoSize / 2, logoSize / 2, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-      ctx.drawImage(img, centerX - logoSize / 2, logoY, logoSize, logoSize);
-      ctx.restore();
-      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-      ctx.lineWidth = Math.max(2, canvasH * 0.004);
-      ctx.beginPath();
-      ctx.arc(centerX, logoY + logoSize / 2, logoSize / 2, 0, Math.PI * 2);
-      ctx.stroke();
-      logoBottomY = logoY + logoSize;
-    } catch {
-      // Malformed/unsupported source image — the card still works fine without the logo badge.
-    }
-  }
-
-  const centerY = logoBottomY + canvasH * 0.16;
   const iconSize = canvasH * 0.15;
-  const spacing = canvasW * 0.22;
+  const badgeW = Math.round(iconSize * 1.9);
+  const badgeH = Math.round(iconSize * 1.7);
 
-  const items = [
-    { icon: drawBellIcon, label: 'SUBSCRIBE', color: '#ff3b3b' },
-    { icon: drawThumbsUpIcon, label: 'LIKE', color: '#3b82f6' },
-    { icon: drawShareIcon, label: 'SHARE', color: '#22c55e' }
-  ];
-
-  items.forEach((item, i) => {
-    const x = centerX + (i - 1) * spacing;
-    item.icon(ctx, x, centerY, iconSize, item.color);
+  function renderBadge(drawIcon, label, color, filePath) {
+    const canvas = createCanvas(badgeW, badgeH);
+    const ctx = canvas.getContext('2d');
+    const cx = badgeW / 2;
+    drawIcon(ctx, cx, badgeH * 0.38, iconSize, color);
     ctx.textAlign = 'center';
-    drawStyledText(ctx, item.label, x, centerY + iconSize * 0.85, {
+    drawStyledText(ctx, label, cx, badgeH * 0.82, {
       font: `bold ${iconSize * 0.32}px "${config.fonts.body}"`,
       color: '#ffffff',
       shadow: false,
       stroke: false
     });
-  });
+    fs.writeFileSync(filePath, canvas.toBuffer('image/png'));
+  }
+
+  const backgroundPath = path.join(tmpDir, 'outro-bg.png');
+  const bgCanvas = createCanvas(canvasW, canvasH);
+  const bgCtx = bgCanvas.getContext('2d');
+  bgCtx.fillStyle = '#111318';
+  bgCtx.fillRect(0, 0, canvasW, canvasH);
+  fs.writeFileSync(backgroundPath, bgCanvas.toBuffer('image/png'));
+
+  const subscribePath = path.join(tmpDir, 'outro-subscribe.png');
+  renderBadge(drawBellIcon, 'SUBSCRIBE', '#ff3b3b', subscribePath);
+  const likePath = path.join(tmpDir, 'outro-like.png');
+  renderBadge(drawThumbsUpIcon, 'LIKE', '#3b82f6', likePath);
+  const sharePath = path.join(tmpDir, 'outro-share.png');
+  renderBadge(drawShareIcon, 'SHARE', '#22c55e', sharePath);
 
   const titleSize = canvasH * 0.06;
-  ctx.textAlign = 'center';
-  drawStyledText(ctx, outro.channelText || 'Thanks for watching!', centerX, centerY + iconSize * 1.9, {
+  const textH = Math.round(titleSize * 1.6);
+  const textPath = path.join(tmpDir, 'outro-text.png');
+  const textCanvas = createCanvas(canvasW, textH);
+  const textCtx = textCanvas.getContext('2d');
+  textCtx.textAlign = 'center';
+  drawStyledText(textCtx, outro.channelText || 'Thanks for watching!', canvasW / 2, textH / 2, {
     font: `${titleSize}px "NewsDisplay"`,
     color: '#ffffff',
     shadow: false,
     stroke: false
   });
+  fs.writeFileSync(textPath, textCanvas.toBuffer('image/png'));
 
-  fs.writeFileSync(outPath, canvas.toBuffer('image/png'));
+  const centerX = canvasW / 2;
+  const centerY = canvasH * 0.44;
+  const spacing = canvasW * 0.22;
+  const logoSize = canvasH * 0.22;
+
+  return {
+    backgroundPath,
+    badgeW,
+    badgeH,
+    badges: [
+      { path: subscribePath, cx: centerX - spacing, cy: centerY },
+      { path: likePath, cx: centerX, cy: centerY },
+      { path: sharePath, cx: centerX + spacing, cy: centerY }
+    ],
+    textPath,
+    textW: canvasW,
+    textH,
+    textCy: centerY + iconSize * 1.9,
+    logo: { cx: centerX, cy: canvasH * 0.08 + logoSize / 2, size: logoSize }
+  };
 }
 
 /**
@@ -566,6 +567,6 @@ module.exports = {
   renderWatermarkText,
   renderNameplate,
   renderStingerCard,
-  renderOutroCard,
+  renderOutroAssets,
   ensureFontsRegistered
 };

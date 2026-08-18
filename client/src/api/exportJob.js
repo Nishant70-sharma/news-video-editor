@@ -13,3 +13,8 @@ export async function getExportStatus(jobId) {
 export function downloadExportUrl(jobId) {
   return `/api/export/${jobId}/download`;
 }
+
+export async function previewOutro({ outro, logo, aspectRatio, resolution }) {
+  const { data } = await api.post('/export/preview-outro', { outro, logo, aspectRatio, resolution });
+  return data.url;
+}

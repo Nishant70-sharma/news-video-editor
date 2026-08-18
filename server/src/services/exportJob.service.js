@@ -8,7 +8,7 @@ const projectService = require('./project.service');
 const overlayRenderer = require('./overlayRenderer.service');
 const { prepareImageAsset } = require('./assetPreprocess.service');
 const { buildFilterGraph, resolveOutputSize, TRANSITION_DURATION } = require('./filterGraph.service');
-const { buildStingerOutroConcat } = require('./introOutro.service');
+const { buildStingerOutroConcat, buildAnimatedOutroLayer } = require('./introOutro.service');
 const { buildDuckedAudio } = require('./audioMix.service');
 const { probeHasAudio } = require('./ffprobe.service');
 const { getFontScale } = require('../utils/overlayGeometry');
@@ -72,24 +72,23 @@ async function renderOverlayAssets(project, outW, outH, tmpDir) {
   }
 
   if (project.outro?.enabled) {
-    let outroLogoAsset = null;
     if (project.logo?.assetUrl) {
       // Sized generously for a card badge, independent of the corner logo's own (often much
       // smaller) widthPct — the outro isn't constrained by needing to stay out of the way of
-      // other overlays the way the persistent corner logo is.
+      // other overlays the way the persistent corner logo is. Always circular here regardless of
+      // the corner logo's own shape setting — a circular avatar badge is the natural fit for
+      // this "channel identity" placement.
       const logoWidthPx = Math.round(outH * 0.22);
-      outroLogoAsset = await prepareImageAsset(
+      assets.outroLogoAsset = await prepareImageAsset(
         resolveMediaPath(project.logo.assetUrl),
         project.logo.kind,
         logoWidthPx,
         tmpDir,
         'outro-logo',
-        project.logo.shape
+        'circle'
       );
     }
-    const outroPath = path.join(tmpDir, 'outro.png');
-    await overlayRenderer.renderOutroCard(project.outro, outroLogoAsset, outW, outH, outroPath);
-    assets.outroPngPath = outroPath;
+    assets.outroAssets = await overlayRenderer.renderOutroAssets(project.outro, outW, outH, tmpDir);
   }
 
   for (let i = 0; i < (project.textLayers || []).length; i++) {
@@ -388,6 +387,77 @@ function processQueue() {
     });
 }
 
+/**
+ * Renders JUST the animated outro sequence (no main video needed at all) so it can be checked
+ * on its own before being attached to a full export — reuses the exact same
+ * introOutro.service.js compositing as the real export, so what's previewed here is pixel-for-
+ * pixel what a real export's outro segment would look like. Runs synchronously (outro clips are
+ * only a few seconds, fast to render) rather than going through the job-queue/polling machinery
+ * the main export uses.
+ */
+async function runOutroPreview({ outro, logo, aspectRatio, resolution }) {
+  const previewId = uuidv4();
+  const tmpDir = path.join(config.storage.tmp, `outro-preview-${previewId}`);
+  await fsp.mkdir(tmpDir, { recursive: true });
+
+  try {
+    const [outW, outH] = resolveOutputSize(aspectRatio || '16:9', resolution || '720p');
+    const fps = 30;
+    const durationSec = outro?.durationSec || 5;
+
+    const outroAssets = await overlayRenderer.renderOutroAssets(outro || {}, outW, outH, tmpDir);
+    let outroLogoAsset = null;
+    if (logo?.assetUrl) {
+      const logoWidthPx = Math.round(outH * 0.22);
+      outroLogoAsset = await prepareImageAsset(resolveMediaPath(logo.assetUrl), logo.kind, logoWidthPx, tmpDir, 'outro-logo', 'circle');
+    }
+
+    const inputs = [];
+    const filters = [];
+    const { videoLabel, audioLabel } = buildAnimatedOutroLayer({
+      inputs,
+      filters,
+      outroAssets,
+      logoAsset: outroLogoAsset,
+      durationSec,
+      outW,
+      outH,
+      fps
+    });
+
+    const outputFilename = `outro-preview-${previewId}.mp4`;
+    const outputPath = path.join(config.storage.exports, outputFilename);
+
+    await new Promise((resolve, reject) => {
+      const command = ffmpeg();
+      inputs.forEach((input) => {
+        command.input(input.path);
+        if (input.options.length) command.inputOptions(input.options);
+      });
+      command
+        .complexFilter(filters)
+        .outputOptions([
+          '-map', `[${videoLabel}]`,
+          '-map', `[${audioLabel}]`,
+          '-c:v', 'libx264',
+          '-preset', 'veryfast',
+          '-crf', '23',
+          '-r', String(fps),
+          '-pix_fmt', 'yuv420p',
+          '-c:a', 'aac',
+          '-t', String(durationSec)
+        ])
+        .on('error', (err) => reject(err))
+        .on('end', () => resolve())
+        .save(outputPath);
+    });
+
+    return { url: `/media/exports/${outputFilename}` };
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
 function startExportJob(projectId) {
   const jobId = uuidv4();
   jobs.set(jobId, { status: 'queued', progress: 0 });
@@ -396,4 +466,4 @@ function startExportJob(projectId) {
   return jobId;
 }
 
-module.exports = { startExportJob, getJob };
+module.exports = { startExportJob, getJob, runOutroPreview };

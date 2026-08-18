@@ -69,6 +69,12 @@ export default function VideoPreview({ project, videoRef }) {
     function onPause() {
       audio.pause();
     }
+    // 'ended' isn't guaranteed to also fire 'pause' in every browser, so it gets its own explicit
+    // handler rather than relying on onPause to catch it — otherwise the replacement audio could
+    // keep playing past the point the (now-stopped) video has visibly finished.
+    function onEnded() {
+      audio.pause();
+    }
     // The native <video controls> mute toggle would otherwise let the original sound sneak back
     // in alongside the replacement track — re-force it muted for as long as replacement is active.
     function keepMuted() {
@@ -77,6 +83,7 @@ export default function VideoPreview({ project, videoRef }) {
 
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
+    video.addEventListener('ended', onEnded);
     video.addEventListener('seeked', syncTime);
     video.addEventListener('timeupdate', syncTime);
     video.addEventListener('volumechange', keepMuted);
@@ -86,6 +93,7 @@ export default function VideoPreview({ project, videoRef }) {
       audio.pause();
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
+      video.removeEventListener('ended', onEnded);
       video.removeEventListener('seeked', syncTime);
       video.removeEventListener('timeupdate', syncTime);
       video.removeEventListener('volumechange', keepMuted);
