@@ -25,12 +25,14 @@ const ASPECT_RATIOS = {
 export default function VideoPreview({ project, videoRef }) {
   const containerRef = useRef(null);
   const audioRef = useRef(null);
+  const musicAudioRef = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   const ratio = ASPECT_RATIOS[project.aspectRatio] || 16 / 9;
 
   // Replace Video Audio only has a real videoRef-attached <video> element to sync against in
   // 'single'/'pip' mode (images/split/sequential preview their own internal <video> elements).
   const hasSyncedAudio = (project.sourceMode === 'single' || project.sourceMode === 'pip') && !!project.customAudio?.assetUrl;
+  const hasMusicPreview = (project.sourceMode === 'single' || project.sourceMode === 'pip') && !!project.music?.assetUrl;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -100,6 +102,49 @@ export default function VideoPreview({ project, videoRef }) {
     };
   }, [hasSyncedAudio, project.customAudio?.assetUrl, project.sourceVideo?.url, videoRef]);
 
+  // Background Music previously only ever played in the exported file — silent in-app, with no
+  // way to check "does this actually sound right" before exporting. Unlike Replace Video Audio,
+  // this LAYERS on top of (doesn't mute) the video's own sound, same as the real export mixes it
+  // in, so both elements just play simultaneously and the browser mixes them naturally. Timing
+  // only needs to be roughly in the right place (it's ambient background, not something that
+  // needs frame-accurate sync) — `loop` handles wraparound the same way `-stream_loop -1` does
+  // in the export.
+  useEffect(() => {
+    const video = videoRef.current;
+    const audio = musicAudioRef.current;
+    if (!hasMusicPreview || !video || !audio) return undefined;
+
+    audio.volume = Math.min(1, Math.max(0, project.music.volume ?? 0.3));
+    audio.loop = true;
+
+    function resync() {
+      if (audio.duration) audio.currentTime = video.currentTime % audio.duration;
+    }
+    function onPlay() {
+      resync();
+      audio.play().catch(() => {});
+    }
+    function onPause() {
+      audio.pause();
+    }
+    function onEnded() {
+      audio.pause();
+    }
+
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('ended', onEnded);
+    video.addEventListener('seeked', resync);
+
+    return () => {
+      audio.pause();
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('ended', onEnded);
+      video.removeEventListener('seeked', resync);
+    };
+  }, [hasMusicPreview, project.music?.assetUrl, project.music?.volume, project.sourceVideo?.url, videoRef]);
+
   return (
     <div className="flex h-full w-full items-center justify-center bg-black/40 p-6">
       <div
@@ -108,6 +153,7 @@ export default function VideoPreview({ project, videoRef }) {
       >
         <div ref={containerRef} className="absolute inset-0">
           {hasSyncedAudio && <audio ref={audioRef} src={project.customAudio.assetUrl} preload="auto" />}
+          {hasMusicPreview && <audio ref={musicAudioRef} src={project.music.assetUrl} preload="auto" />}
           {project.sourceMode === 'images' ? (
             <ImagesSlideshowPreview images={project.images} />
           ) : project.sourceMode === 'split' ? (
@@ -181,6 +227,14 @@ export default function VideoPreview({ project, videoRef }) {
               {hasSyncedAudio && (
                 <div className="absolute right-3 top-3 rounded-full bg-black/70 px-2.5 py-1 text-[10px] font-semibold text-emerald-400">
                   🎙️ Custom Audio Active
+                </div>
+              )}
+              {hasMusicPreview && (
+                <div
+                  className="absolute rounded-full bg-black/70 px-2.5 py-1 text-[10px] font-semibold text-sky-400"
+                  style={{ right: 12, top: hasSyncedAudio ? 40 : 12 }}
+                >
+                  🎵 Background Music Active — click Play to hear it
                 </div>
               )}
             </>

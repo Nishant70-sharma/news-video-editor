@@ -15,6 +15,8 @@
  * — referencing `[0:a]` in a filter graph hard-fails if that stream doesn't actually exist.
  */
 
+const { buildPaddedSoundEffect } = require('./soundEffects.service');
+
 /**
  * Every "-loop 1"/"-stream_loop -1" input starts decoding at t=0 of the OVERALL ffmpeg process,
  * independent of where `concat` later places its frames in the output timeline — so `st=`/`t<`
@@ -93,6 +95,11 @@ function buildAnimatedOutroLayer({ inputs, filters, outroAssets, logoAsset, dura
   return { videoLabel: 'outroV', audioLabel: 'outroA' };
 }
 
+/** Thin wrapper kept under its original name for existing call sites (exportJob.service.js's stinger-sfx preview endpoint) — actual synthesis now lives in soundEffects.service.js, shared with the general timeline placement feature. */
+function buildStingerSoundEffectLabel(filters, effectId, durationSec) {
+  return buildPaddedSoundEffect(filters, effectId, durationSec, 'stingerSfx');
+}
+
 function buildStingerOutroConcat({ project, inputs, filters, videoLabel, audioLabel, mainHasAudio, mainDurationSec, outW, outH, fps, assets }) {
   const stingerOn = !!(project.stinger?.enabled && assets.stingerPngPath);
   const outroOn = !!(project.outro?.enabled && assets.outroAssets);
@@ -120,10 +127,15 @@ function buildStingerOutroConcat({ project, inputs, filters, videoLabel, audioLa
     inputs.push({ path: assets.stingerPngPath, options: ['-loop', '1'] });
     const d = project.stinger.durationSec || 1.5;
     filters.push(
-      `[${idx}:v]scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS[stingerV]`,
-      `anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=${d},asetpts=PTS-STARTPTS[stingerA]`
+      `[${idx}:v]scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps},format=yuv420p,trim=duration=${d},setpts=PTS-STARTPTS[stingerV]`
     );
-    segments.push({ v: 'stingerV', a: 'stingerA', d });
+    const sfxLabel = buildStingerSoundEffectLabel(filters, project.stinger.soundEffect, d);
+    if (sfxLabel) {
+      segments.push({ v: 'stingerV', a: sfxLabel, d });
+    } else {
+      filters.push(`anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=${d},asetpts=PTS-STARTPTS[stingerA]`);
+      segments.push({ v: 'stingerV', a: 'stingerA', d });
+    }
   }
 
   segments.push({ v: 'mainV', a: 'mainA', d: mainDurationSec });
@@ -150,4 +162,4 @@ function buildStingerOutroConcat({ project, inputs, filters, videoLabel, audioLa
   return { videoLabel: 'finalV', audioLabel: 'finalA', totalDurationSec };
 }
 
-module.exports = { buildStingerOutroConcat, buildAnimatedOutroLayer };
+module.exports = { buildStingerOutroConcat, buildAnimatedOutroLayer, buildStingerSoundEffectLabel };

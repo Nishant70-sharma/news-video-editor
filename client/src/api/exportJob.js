@@ -18,3 +18,8 @@ export async function previewOutro({ outro, logo, aspectRatio, resolution }) {
   const { data } = await api.post('/export/preview-outro', { outro, logo, aspectRatio, resolution });
   return data.url;
 }
+
+export async function previewStingerSfx(soundEffect) {
+  const { data } = await api.post('/export/preview-stinger-sfx', { soundEffect });
+  return data.url;
+}

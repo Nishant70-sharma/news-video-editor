@@ -1,8 +1,15 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useProjectStore } from '../../store/useProjectStore';
 import Slider from '../common/Slider';
 import ColorPicker from '../common/ColorPicker';
-import { previewOutro } from '../../api/exportJob';
+import { previewOutro, previewStingerSfx } from '../../api/exportJob';
+
+const SOUND_EFFECT_OPTIONS = [
+  { id: 'none', label: 'None' },
+  { id: 'glassBreak', label: 'Glass Break' },
+  { id: 'whoosh', label: 'Whoosh' },
+  { id: 'newsChime', label: 'News Alert Chime' }
+];
 
 const COLOR_GRADES = [
   { id: 'none', label: 'None' },
@@ -38,9 +45,33 @@ function Toggle({ label, checked, onChange }) {
 export default function BrandingPanel() {
   const project = useProjectStore((s) => s.project);
   const updateField = useProjectStore((s) => s.updateField);
+  const addSoundEffect = useProjectStore((s) => s.addSoundEffect);
+  const updateSoundEffect = useProjectStore((s) => s.updateSoundEffect);
+  const removeSoundEffect = useProjectStore((s) => s.removeSoundEffect);
   const [outroPreviewUrl, setOutroPreviewUrl] = useState(null);
   const [outroPreviewBusy, setOutroPreviewBusy] = useState(false);
   const [outroPreviewError, setOutroPreviewError] = useState(null);
+  const [sfxBusy, setSfxBusy] = useState(false);
+  const [sfxError, setSfxError] = useState(null);
+  const sfxAudioRef = useRef(null);
+
+  async function handlePlaySfx(effectId) {
+    setSfxError(null);
+    setSfxBusy(true);
+    try {
+      const url = await previewStingerSfx(effectId);
+      if (sfxAudioRef.current) {
+        sfxAudioRef.current.src = `${url}?t=${Date.now()}`;
+        await sfxAudioRef.current.play();
+      }
+    } catch (err) {
+      setSfxError(err.response?.data?.error || err.message);
+    } finally {
+      setSfxBusy(false);
+    }
+  }
+
+  const videoDurationSec = project.sourceVideo?.metadata?.duration;
 
   async function handlePreviewOutro() {
     setOutroPreviewError(null);
@@ -84,8 +115,96 @@ export default function BrandingPanel() {
               unit="s"
               onChange={(v) => updateField('stinger.durationSec', v)}
             />
+            <span className="mb-1 mt-2 block text-sm text-slate-300">Sound Effect</span>
+            <p className="mb-2 text-xs text-slate-500">
+              Synthesized on the fly (no downloaded audio) — plays once as the stinger flashes.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {SOUND_EFFECT_OPTIONS.map((sfx) => (
+                <button
+                  key={sfx.id}
+                  onClick={() => updateField('stinger.soundEffect', sfx.id)}
+                  className={`rounded-md border py-1.5 text-xs ${
+                    (project.stinger.soundEffect || 'none') === sfx.id
+                      ? 'border-news-accent2 bg-news-accent2/20 text-white'
+                      : 'border-news-border text-slate-400'
+                  }`}
+                >
+                  {sfx.label}
+                </button>
+              ))}
+            </div>
+            {project.stinger.soundEffect && project.stinger.soundEffect !== 'none' && (
+              <button
+                onClick={() => handlePlaySfx(project.stinger.soundEffect)}
+                disabled={sfxBusy}
+                className="mt-2 w-full rounded-md border border-news-border py-2 text-xs text-slate-300 hover:border-news-accent2 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sfxBusy ? 'Generating…' : '🔊 Test Sound'}
+              </button>
+            )}
           </>
         )}
+      </section>
+
+      <section className="rounded-lg border border-news-border bg-black/20 p-3">
+        <h3 className="mb-1 text-sm font-semibold text-slate-200">Sound Effects (anywhere in the video)</h3>
+        <p className="mb-2 text-xs text-slate-500">
+          Pick a moment in your video and layer one of these synthesized sounds on top of its
+          existing audio — not tied to the stinger, place it wherever something happens on screen.
+        </p>
+        {project.soundEffects.map((sfx) => (
+          <div key={sfx.id} className="mb-2 rounded-md border border-news-border bg-black/20 p-2">
+            <div className="grid grid-cols-3 gap-1.5">
+              {SOUND_EFFECT_OPTIONS.filter((o) => o.id !== 'none').map((o) => (
+                <button
+                  key={o.id}
+                  onClick={() => updateSoundEffect(sfx.id, { effect: o.id })}
+                  className={`rounded-md border py-1 text-[11px] leading-tight ${
+                    sfx.effect === o.id
+                      ? 'border-news-accent2 bg-news-accent2/20 text-white'
+                      : 'border-news-border text-slate-400'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-xs text-slate-400">
+                Starts at
+                <input
+                  type="number"
+                  min={0}
+                  max={videoDurationSec || undefined}
+                  step={0.1}
+                  value={sfx.startSec}
+                  onChange={(e) => updateSoundEffect(sfx.id, { startSec: Math.max(0, Number(e.target.value)) })}
+                  className="w-20 rounded-md border border-news-border bg-black/30 px-2 py-1 text-slate-100"
+                />
+                sec{videoDurationSec ? ` / ${videoDurationSec.toFixed(1)}s total` : ''}
+              </label>
+              <button onClick={() => removeSoundEffect(sfx.id)} className="text-xs text-red-400 hover:text-red-300">
+                Remove
+              </button>
+            </div>
+            <button
+              onClick={() => handlePlaySfx(sfx.effect)}
+              disabled={sfxBusy}
+              className="mt-2 w-full rounded-md border border-news-border py-1.5 text-xs text-slate-300 hover:border-news-accent2 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sfxBusy ? 'Generating…' : '🔊 Test'}
+            </button>
+          </div>
+        ))}
+        <button
+          onClick={() => addSoundEffect({ id: crypto.randomUUID(), effect: 'glassBreak', startSec: 0 })}
+          className="w-full rounded-md border border-dashed border-news-border py-2 text-xs text-slate-400 hover:border-news-accent2 hover:text-white"
+        >
+          + Add Sound Effect
+        </button>
+        {sfxError && <p className="mt-2 text-xs text-red-400">{sfxError}</p>}
+        <audio ref={sfxAudioRef} className="hidden" />
       </section>
 
       <section className="rounded-lg border border-news-border bg-black/20 p-3">

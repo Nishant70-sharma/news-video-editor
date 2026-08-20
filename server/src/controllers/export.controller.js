@@ -1,5 +1,5 @@
 const path = require('path');
-const { startExportJob, getJob, runOutroPreview } = require('../services/exportJob.service');
+const { startExportJob, getJob, runOutroPreview, runStingerSfxPreview } = require('../services/exportJob.service');
 const config = require('../config');
 
 async function createExport(req, res) {
@@ -13,6 +13,13 @@ async function previewOutro(req, res) {
   const { outro, logo, aspectRatio, resolution } = req.body;
   if (!outro) return res.status(400).json({ error: 'outro is required' });
   const result = await runOutroPreview({ outro, logo, aspectRatio, resolution });
+  res.json(result);
+}
+
+async function previewStingerSfx(req, res) {
+  const { soundEffect } = req.body;
+  if (!soundEffect || soundEffect === 'none') return res.status(400).json({ error: 'soundEffect is required' });
+  const result = await runStingerSfxPreview(soundEffect);
   res.json(result);
 }
 
@@ -30,4 +37,4 @@ async function downloadExport(req, res) {
   res.download(path.join(config.storage.exports, job.outputFilename));
 }
 
-module.exports = { createExport, getExportStatus, downloadExport, previewOutro };
+module.exports = { createExport, getExportStatus, downloadExport, previewOutro, previewStingerSfx };

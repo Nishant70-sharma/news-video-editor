@@ -130,9 +130,11 @@ async function renderHeadlineBanner(headline, canvasW, canvasH, outPath, scale =
 }
 
 /**
- * Render the scrolling ticker to a wide transparent PNG. Width is 2x the canvas width so the
- * FFmpeg overlay x-expression (W - mod(t*speed, W+w)) has a full strip's worth of text to
- * scroll through before needing to repeat.
+ * Renders ONLY the scrolling text, on a fully transparent canvas — the ticker's colored
+ * background bar is a separate, STATIONARY overlay (built directly in filterGraph.service.js via
+ * a plain `color=` source, no PNG needed) so scrolling only moves the text, not the bar underneath
+ * it. Baking the background into this same scrolling image would drag the whole bar left/right
+ * with the text, which reads as the bar's color itself sliding across the screen.
  */
 async function renderTicker(ticker, canvasW, canvasH, outPath, scale = 1) {
   ensureFontsRegistered();
@@ -140,11 +142,6 @@ async function renderTicker(ticker, canvasW, canvasH, outPath, scale = 1) {
   const fontSize = (ticker.fontSize || 28) * scale;
   const canvas = createCanvas(canvasW, box.height);
   const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = ticker.bgColor || '#111111';
-  ctx.globalAlpha = 0.9;
-  ctx.fillRect(0, 0, canvasW, box.height);
-  ctx.globalAlpha = 1;
 
   ctx.font = `bold ${fontSize}px "${config.fonts.body}"`;
   ctx.fillStyle = ticker.textColor || '#ffffff';
@@ -324,9 +321,20 @@ async function renderStingerCard(stinger, canvasW, canvasH, outPath) {
   ctx.fillRect(0, barY, canvasW, borderW);
   ctx.fillRect(0, barY + barH - borderW, canvasW, borderW);
 
-  const fontSize = barH * 0.42;
+  // Sized off barH alone, this overflowed badly on a portrait (9:16) canvas — barH scales with
+  // canvasH, which is the SMALLER dimension on landscape video but the LARGER one on portrait,
+  // so the same formula produced a font far wider than the (narrow) canvas. Shrink-to-fit against
+  // the actual canvas width instead, which is correct regardless of aspect ratio or text length.
+  let fontSize = barH * 0.42;
+  const text = (stinger.text || 'BREAKING NEWS').toUpperCase();
+  ctx.font = `${fontSize}px "NewsDisplay"`;
+  const maxTextWidth = canvasW * 0.88;
+  const measuredWidth = ctx.measureText(text).width;
+  if (measuredWidth > maxTextWidth) {
+    fontSize *= maxTextWidth / measuredWidth;
+  }
   ctx.textAlign = 'center';
-  drawStyledText(ctx, (stinger.text || 'BREAKING NEWS').toUpperCase(), canvasW / 2, barY + barH / 2, {
+  drawStyledText(ctx, text, canvasW / 2, barY + barH / 2, {
     font: `${fontSize}px "NewsDisplay"`,
     color: '#ffffff',
     shadow: true,
@@ -406,9 +414,25 @@ function drawBellIcon(ctx, x, y, size, color) {
  */
 async function renderOutroAssets(outro, canvasW, canvasH, tmpDir) {
   ensureFontsRegistered();
-  const iconSize = canvasH * 0.15;
-  const badgeW = Math.round(iconSize * 1.9);
-  const badgeH = Math.round(iconSize * 1.7);
+  // Sized off canvasH alone, the three badges were wide enough to badly overlap on a portrait
+  // (9:16) canvas — canvasH is the SMALLER dimension on landscape video but the LARGER one on
+  // portrait, so a formula tuned against it produced icons/badges far too big for the (narrow)
+  // width. minDim keeps the base icon size sane in either orientation; the shrink-to-fit check
+  // below additionally guarantees the three badges plus gaps never exceed the actual canvas width.
+  const minDim = Math.min(canvasW, canvasH);
+  let iconSize = minDim * 0.15;
+  let badgeW = Math.round(iconSize * 1.9);
+  let badgeH = Math.round(iconSize * 1.7);
+
+  const GAP_RATIO = 0.15;
+  const maxAllowedWidth = canvasW * 0.92;
+  const totalWidthNeeded = 3 * badgeW * (1 + GAP_RATIO);
+  if (totalWidthNeeded > maxAllowedWidth) {
+    const shrink = maxAllowedWidth / totalWidthNeeded;
+    iconSize *= shrink;
+    badgeW = Math.round(iconSize * 1.9);
+    badgeH = Math.round(iconSize * 1.7);
+  }
 
   function renderBadge(drawIcon, label, color, filePath) {
     const canvas = createCanvas(badgeW, badgeH);
@@ -439,13 +463,21 @@ async function renderOutroAssets(outro, canvasW, canvasH, tmpDir) {
   const sharePath = path.join(tmpDir, 'outro-share.png');
   renderBadge(drawShareIcon, 'SHARE', '#22c55e', sharePath);
 
-  const titleSize = canvasH * 0.06;
+  let titleSize = minDim * 0.06;
+  const channelText = outro.channelText || 'Thanks for watching!';
+  const measureCtx = createCanvas(1, 1).getContext('2d');
+  measureCtx.font = `${titleSize}px "NewsDisplay"`;
+  const maxTitleWidth = canvasW * 0.88;
+  const measuredTitleWidth = measureCtx.measureText(channelText).width;
+  if (measuredTitleWidth > maxTitleWidth) {
+    titleSize *= maxTitleWidth / measuredTitleWidth;
+  }
   const textH = Math.round(titleSize * 1.6);
   const textPath = path.join(tmpDir, 'outro-text.png');
   const textCanvas = createCanvas(canvasW, textH);
   const textCtx = textCanvas.getContext('2d');
   textCtx.textAlign = 'center';
-  drawStyledText(textCtx, outro.channelText || 'Thanks for watching!', canvasW / 2, textH / 2, {
+  drawStyledText(textCtx, channelText, canvasW / 2, textH / 2, {
     font: `${titleSize}px "NewsDisplay"`,
     color: '#ffffff',
     shadow: false,
@@ -455,8 +487,11 @@ async function renderOutroAssets(outro, canvasW, canvasH, tmpDir) {
 
   const centerX = canvasW / 2;
   const centerY = canvasH * 0.44;
-  const spacing = canvasW * 0.22;
-  const logoSize = canvasH * 0.22;
+  // Center-to-center spacing derived from the (already width-fitted) badgeW itself, rather than
+  // a separate canvasW-based formula — guarantees the badges never overlap by construction,
+  // regardless of aspect ratio, since it's directly tied to how wide they actually ended up.
+  const spacing = badgeW * (1 + GAP_RATIO);
+  const logoSize = minDim * 0.22;
 
   return {
     backgroundPath,

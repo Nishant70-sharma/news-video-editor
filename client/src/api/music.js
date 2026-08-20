@@ -11,3 +11,8 @@ export async function uploadMusic(file, filename) {
   });
   return data;
 }
+
+export async function generateBackgroundMusic(style) {
+  const { data } = await api.post('/music/generate', { style });
+  return data;
+}

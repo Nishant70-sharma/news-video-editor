@@ -26,14 +26,15 @@ export function createBlankProject() {
     splitMarginPct: 0,
     splitMarginPosition: 'bottom',
     splitAlternate: false,
-    stinger: { enabled: false, text: 'BREAKING NEWS', durationSec: 1.5 },
+    stinger: { enabled: false, text: 'BREAKING NEWS', durationSec: 1.5, soundEffect: 'none' },
     outro: { enabled: true, channelText: '', durationSec: 5 },
     liveBadge: { enabled: false },
     dateTimeStamp: { enabled: false, position: 'top-right' },
     nameplate: { enabled: false, name: '', title: '', position: 'bottom-left', bgColor: '', durationSec: 6, animation: 'slide-left' },
     subscribeBar: { enabled: false, text: 'Subscribe, Like & Share!' },
-    music: { assetUrl: '', kind: '', volume: 0.3, duckingEnabled: true },
+    music: { assetUrl: '', kind: '', volume: 0.3, duckingEnabled: true, presetId: '' },
     customAudio: { assetUrl: '', kind: '' },
+    soundEffects: [],
     colorGrade: 'none',
     imagesKenBurns: false,
     transitionStyle: 'cut',
@@ -66,12 +67,41 @@ export function createBlankProject() {
   };
 }
 
+/**
+ * Backfills any fields missing from a project loaded off disk with fresh defaults — projects
+ * saved before a given feature existed (e.g. `soundEffects`, `nameplate`, `stinger.soundEffect`)
+ * would otherwise come back from the API as `undefined` for that field, crashing whichever panel
+ * reads it (e.g. `project.soundEffects.map(...)`). One level of nested-object merging so an old
+ * `stinger: {enabled, text, durationSec}` (missing `soundEffect`) still gets that filled in,
+ * rather than the top-level spread wholesale replacing the whole nested object.
+ */
+function mergeWithDefaults(loaded) {
+  const defaults = createBlankProject();
+  const merged = { ...defaults, ...loaded };
+
+  const nestedObjectKeys = [
+    'stinger', 'outro', 'liveBadge', 'dateTimeStamp', 'nameplate', 'subscribeBar', 'music',
+    'customAudio', 'pipClip', 'headline', 'ticker', 'logo', 'watermark', 'trim', 'exportSettings'
+  ];
+  nestedObjectKeys.forEach((key) => {
+    if (loaded?.[key] && typeof loaded[key] === 'object' && !Array.isArray(loaded[key])) {
+      merged[key] = { ...defaults[key], ...loaded[key] };
+    }
+  });
+
+  ['images', 'splitClips', 'textLayers', 'soundEffects'].forEach((key) => {
+    merged[key] = Array.isArray(loaded?.[key]) ? loaded[key] : defaults[key];
+  });
+
+  return merged;
+}
+
 export const useProjectStore = create((set, get) => ({
   project: createBlankProject(),
   dirty: false,
 
   loadProject(project) {
-    set({ project, dirty: false });
+    set({ project: mergeWithDefaults(project), dirty: false });
   },
 
   newProject() {
@@ -140,6 +170,27 @@ export const useProjectStore = create((set, get) => ({
   removeTextLayer(id) {
     set((s) => ({
       project: { ...s.project, textLayers: s.project.textLayers.filter((l) => l.id !== id) },
+      dirty: true
+    }));
+  },
+
+  addSoundEffect(sfx) {
+    set((s) => ({ project: { ...s.project, soundEffects: [...s.project.soundEffects, sfx] }, dirty: true }));
+  },
+
+  updateSoundEffect(id, patch) {
+    set((s) => ({
+      project: {
+        ...s.project,
+        soundEffects: s.project.soundEffects.map((sfx) => (sfx.id === id ? { ...sfx, ...patch } : sfx))
+      },
+      dirty: true
+    }));
+  },
+
+  removeSoundEffect(id) {
+    set((s) => ({
+      project: { ...s.project, soundEffects: s.project.soundEffects.filter((sfx) => sfx.id !== id) },
       dirty: true
     }));
   },

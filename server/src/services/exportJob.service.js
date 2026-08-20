@@ -8,8 +8,9 @@ const projectService = require('./project.service');
 const overlayRenderer = require('./overlayRenderer.service');
 const { prepareImageAsset } = require('./assetPreprocess.service');
 const { buildFilterGraph, resolveOutputSize, TRANSITION_DURATION } = require('./filterGraph.service');
-const { buildStingerOutroConcat, buildAnimatedOutroLayer } = require('./introOutro.service');
+const { buildStingerOutroConcat, buildAnimatedOutroLayer, buildStingerSoundEffectLabel } = require('./introOutro.service');
 const { buildDuckedAudio } = require('./audioMix.service');
+const { buildTimelineSoundEffectsAudio } = require('./soundEffects.service');
 const { probeHasAudio } = require('./ffprobe.service');
 const { getFontScale } = require('../utils/overlayGeometry');
 
@@ -305,6 +306,20 @@ async function runExport(jobId, projectId) {
     mainAudioLabel = mixed.audioLabel;
   }
 
+  // Timeline sound effects (user-placed, at a chosen startSec) — mixed in on top of whatever
+  // audio survived the stages above, so they layer over ducked music/voiceover/original speech
+  // alike. Runs on the main-content-only timeline, before any stinger prepends time in front of
+  // it, so a chosen startSec always means "N seconds into the main video" regardless of stinger.
+  if (project.soundEffects?.length) {
+    mainAudioLabel = buildTimelineSoundEffectsAudio({
+      filters,
+      mainAudioLabel,
+      mainHasAudio: mainAudioLabel ? true : await mainHasAudio(),
+      soundEffects: project.soundEffects,
+      durationSec
+    });
+  }
+
   if (project.stinger?.enabled || project.outro?.enabled) {
     const wrapped = buildStingerOutroConcat({
       project,
@@ -458,6 +473,35 @@ async function runOutroPreview({ outro, logo, aspectRatio, resolution }) {
   }
 }
 
+/**
+ * Renders JUST a stinger sound effect on its own — no video, no real file inputs at all (every
+ * option is a synthetic FFmpeg generator filter: noise/tone sources, not a downloaded/licensed
+ * sample) — so it can be auditioned instantly before deciding to attach it to the stinger. Shares
+ * `buildStingerSoundEffectLabel` with the real export, so what's previewed here is exactly what
+ * would play in the actual output.
+ */
+async function runStingerSfxPreview(soundEffect) {
+  const filters = [];
+  const previewDurationSec = 1.2;
+  const label = buildStingerSoundEffectLabel(filters, soundEffect, previewDurationSec);
+  if (!label) throw new Error(`Unknown sound effect: ${soundEffect}`);
+
+  const previewId = uuidv4();
+  const outputFilename = `sfx-preview-${previewId}.mp3`;
+  const outputPath = path.join(config.storage.exports, outputFilename);
+
+  await new Promise((resolve, reject) => {
+    ffmpeg()
+      .complexFilter(filters)
+      .outputOptions(['-map', `[${label}]`, '-c:a', 'libmp3lame', '-t', String(previewDurationSec)])
+      .on('error', (err) => reject(err))
+      .on('end', () => resolve())
+      .save(outputPath);
+  });
+
+  return { url: `/media/exports/${outputFilename}` };
+}
+
 function startExportJob(projectId) {
   const jobId = uuidv4();
   jobs.set(jobId, { status: 'queued', progress: 0 });
@@ -466,4 +510,4 @@ function startExportJob(projectId) {
   return jobId;
 }
 
-module.exports = { startExportJob, getJob, runOutroPreview };
+module.exports = { startExportJob, getJob, runOutroPreview, runStingerSfxPreview };

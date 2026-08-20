@@ -380,17 +380,32 @@ function buildFilterGraph(project, assets, baseSources) {
   }
 
   if (assets.tickerPngPath && project.ticker?.text) {
+    const box = resolveBoxPx({ xPct: 0, yPct: 0.92, widthPct: 1, heightPct: 0.08 }, outW, outH);
+
+    // Stationary background bar — a plain `color=` generator source (like the split-screen
+    // background), composited at a FIXED position. Only the text overlay below it scrolls; the
+    // bar itself must never move, or its color visibly slides left/right along with the text.
+    // format=rgba gives the background an alpha channel to fade — a bare `color=` source has
+    // none, and withEntranceFade's alpha=1 fade needs one to actually fade (rather than no-op).
+    // colorchannelmixer restores the bar's original ~90% opacity (a plain color= source is fully
+    // opaque otherwise, unlike the canvas-rendered bar this replaces).
+    filters.push(
+      `color=c=${project.ticker.bgColor || '#111111'}:s=${outW}x${box.height}:r=${project.exportSettings?.fps || 30},format=rgba,colorchannelmixer=aa=0.9[tickerBg]`
+    );
+    const bgSrcLabel = withEntranceFade(filters, 'tickerBg', project.ticker.animation, 'tickerBg');
+    filters.push(`[${current}][${bgSrcLabel}]overlay=x=0:y=${box.y}[withTickerBg]`);
+    current = 'withTickerBg';
+
     const idx = inputs.length;
     inputs.push({ path: assets.tickerPngPath, options: ['-loop', '1'] });
     // Only a fade entrance is offered for the ticker (see TICKER_ANIMATION_OPTIONS client-side)
     // — a directional slide would fight the continuous scroll motion below.
-    const srcLabel = withEntranceFade(filters, `${idx}:v`, project.ticker.animation, 'ticker');
+    const srcLabel = withEntranceFade(filters, `${idx}:v`, project.ticker.animation, 'tickerText');
     const speed = project.ticker.speedPxPerSec || 120;
     const xExpr =
       project.ticker.direction === 'ltr'
         ? `mod(t*${speed},W+w)-w`
         : `W-mod(t*${speed},W+w)`;
-    const box = resolveBoxPx({ xPct: 0, yPct: 0.92, widthPct: 1, heightPct: 0.08 }, outW, outH);
     filters.push(`[${current}][${srcLabel}]overlay=x='${xExpr}':y=${box.y}:eval=frame[withTicker]`);
     current = 'withTicker';
   }
