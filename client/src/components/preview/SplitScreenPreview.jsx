@@ -23,6 +23,11 @@ export default function SplitScreenPreview({
   const marginOnHorizontalEdge = marginPosition === 'top' || marginPosition === 'bottom';
   const marginAtStart = marginPosition === 'top' || marginPosition === 'left';
   const [activeTurn, setActiveTurn] = useState(0);
+  // Browsers block autoplay-with-sound on a bare `autoplay` attribute (no prior user gesture),
+  // so both clips start muted and only unmute once the viewer explicitly asks for sound — that
+  // click IS a real gesture, so toggling .muted afterward is always allowed, unlike the initial
+  // autoplay itself.
+  const [soundOn, setSoundOn] = useState(false);
   const videoRefA = useRef(null);
   const videoRefB = useRef(null);
 
@@ -65,7 +70,8 @@ export default function SplitScreenPreview({
           className="h-full w-full object-cover"
           autoPlay={!alternate || i === 0}
           loop={!alternate}
-          muted
+          muted={!soundOn}
+          controls
           playsInline
         />
       ) : (
@@ -88,10 +94,17 @@ export default function SplitScreenPreview({
   );
 
   return (
-    <div className={`flex h-full w-full ${marginOnHorizontalEdge ? 'flex-col' : 'flex-row'}`}>
+    <div className={`relative flex h-full w-full ${marginOnHorizontalEdge ? 'flex-col' : 'flex-row'}`}>
       {marginAtStart && marginBand}
       {contentArea}
       {!marginAtStart && marginBand}
+      <button
+        type="button"
+        onClick={() => setSoundOn((v) => !v)}
+        className="absolute left-1 top-1 z-10 rounded bg-black/70 px-2 py-1 text-[10px] text-slate-200 hover:bg-black/90"
+      >
+        {soundOn ? '🔊 Sound on' : '🔇 Tap for sound'}
+      </button>
     </div>
   );
 }

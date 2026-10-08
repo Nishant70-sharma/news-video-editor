@@ -248,6 +248,16 @@ async function runExport(jobId, projectId) {
   const [outW, outH] = resolveOutputSize(project.aspectRatio, project.exportSettings?.resolution || '1080p');
   const baseSources = resolveBaseSources(project);
 
+  // Split/Sequential each reference both clips' own audio inside a complexFilter, which (unlike
+  // "-map 0:a?") hard-fails if a referenced stream doesn't exist — so each clip's audio presence
+  // has to be known up front, letting buildFilterGraph skip/silence-pad whichever clip lacks it
+  // instead of assuming both (or just Clip A) always have a track.
+  if (project.sourceMode === 'split' || project.sourceMode === 'sequential') {
+    await Promise.all(baseSources.map(async (clip) => {
+      clip.hasAudio = await probeHasAudio(clip.path);
+    }));
+  }
+
   const assets = await renderOverlayAssets(project, outW, outH, tmpDir);
   const { inputs, filters, outputLabel, hasLoopedInput, audioLabel } = buildFilterGraph(project, assets, baseSources);
 

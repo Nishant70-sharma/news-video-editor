@@ -6,6 +6,10 @@ import { useEffect, useRef, useState } from 'react';
  */
 export default function SequentialPreview({ splitClips }) {
   const [active, setActive] = useState(0);
+  // Programmatic play() without a direct user gesture (this fires from a useEffect / setTimeout,
+  // not a click handler) gets rejected by the browser when unmuted, so playback starts muted and
+  // only unmutes once the viewer explicitly taps for sound.
+  const [soundOn, setSoundOn] = useState(false);
   const videoARef = useRef(null);
   const videoBRef = useRef(null);
 
@@ -20,6 +24,7 @@ export default function SequentialPreview({ splitClips }) {
     if (!durA) return undefined;
     const timer = setTimeout(() => {
       setActive(1);
+      videoARef.current?.pause();
       if (videoBRef.current) {
         videoBRef.current.currentTime = 0;
         videoBRef.current.play().catch(() => {});
@@ -45,7 +50,8 @@ export default function SequentialPreview({ splitClips }) {
           src={splitClips[0].sourceVideo.url}
           className="absolute inset-0 h-full w-full object-contain"
           style={{ visibility: active === 0 ? 'visible' : 'hidden' }}
-          muted
+          muted={!soundOn}
+          controls
           playsInline
         />
       )}
@@ -55,13 +61,21 @@ export default function SequentialPreview({ splitClips }) {
           src={splitClips[1].sourceVideo.url}
           className="absolute inset-0 h-full w-full object-contain"
           style={{ visibility: active === 1 ? 'visible' : 'hidden' }}
-          muted
+          muted={!soundOn}
+          controls
           playsInline
         />
       )}
       <div className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-1 text-[10px] text-slate-300">
         Now playing: Clip {active === 0 ? 'A' : 'B'}
       </div>
+      <button
+        type="button"
+        onClick={() => setSoundOn((v) => !v)}
+        className="absolute left-1 top-1 z-10 rounded bg-black/70 px-2 py-1 text-[10px] text-slate-200 hover:bg-black/90"
+      >
+        {soundOn ? '🔊 Sound on' : '🔇 Tap for sound'}
+      </button>
     </div>
   );
 }

@@ -30,6 +30,15 @@ function ensureFontsRegistered() {
   fontsRegistered = true;
 }
 
+// NewsDisplay/NewsDisplayAlt (Anton/Bebas Neue) and config.fonts.body (Arial) are Latin-only —
+// Devanagari text (Hindi headlines/tickers/etc.) in those fonts renders as empty "tofu" boxes
+// instead of glyphs. "Nirmala UI" ships with Windows and covers Devanagari, so any user text is
+// checked for it and routed to that family instead of the requested Latin one.
+const DEVANAGARI_RE = /[ऀ-ॿ]/;
+function pickFont(text, fallbackFamily) {
+  return DEVANAGARI_RE.test(text || '') ? 'Nirmala UI' : fallbackFamily;
+}
+
 function roundRectPath(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -93,7 +102,7 @@ async function renderHeadlineBanner(headline, canvasW, canvasH, outPath, scale =
 
   if (headline.main) {
     drawStyledText(ctx, headline.main.toUpperCase(), textX, cursorY, {
-      font: `${mainSize}px "${fontFamily}"`,
+      font: `${mainSize}px "${pickFont(headline.main, fontFamily)}"`,
       color: '#ffffff',
       shadow: true,
       stroke: false,
@@ -104,7 +113,7 @@ async function renderHeadlineBanner(headline, canvasW, canvasH, outPath, scale =
   if (headline.sub) {
     const subSize = Math.round(mainSize * 0.5);
     drawStyledText(ctx, headline.sub, textX, cursorY, {
-      font: `${subSize}px "${config.fonts.body}"`,
+      font: `${subSize}px "${pickFont(headline.sub, config.fonts.body)}"`,
       color: '#f1f1f1',
       shadow: false,
       stroke: false
@@ -115,8 +124,9 @@ async function renderHeadlineBanner(headline, canvasW, canvasH, outPath, scale =
   const tagSize = Math.round(mainSize * 0.4);
   const tags = [headline.location, headline.reporter].filter(Boolean);
   if (tags.length) {
-    drawStyledText(ctx, tags.join('   |   '), textX, cursorY, {
-      font: `italic ${tagSize}px "${config.fonts.body}"`,
+    const tagsText = tags.join('   |   ');
+    drawStyledText(ctx, tagsText, textX, cursorY, {
+      font: `italic ${tagSize}px "${pickFont(tagsText, config.fonts.body)}"`,
       color: '#e5e5e5',
       shadow: false,
       stroke: false
@@ -140,13 +150,19 @@ async function renderTicker(ticker, canvasW, canvasH, outPath, scale = 1) {
   ensureFontsRegistered();
   const box = resolveBoxPx(tickerBox(), canvasW, canvasH);
   const fontSize = (ticker.fontSize || 28) * scale;
-  const canvas = createCanvas(canvasW, box.height);
-  const ctx = canvas.getContext('2d');
+  const font = `bold ${fontSize}px "${pickFont(ticker.text, config.fonts.body)}"`;
 
-  ctx.font = `bold ${fontSize}px "${config.fonts.body}"`;
+  // Measure first: text longer than the frame must widen the strip, or everything past canvasW
+  // is clipped and the scroll shows a truncated sentence.
+  const measureCtx = createCanvas(1, 1).getContext('2d');
+  measureCtx.font = font;
+  const textWidth = measureCtx.measureText(ticker.text || '').width;
+
+  const canvas = createCanvas(Math.max(canvasW, Math.ceil(textWidth) + 48), box.height);
+  const ctx = canvas.getContext('2d');
+  ctx.font = font;
   ctx.fillStyle = ticker.textColor || '#ffffff';
   ctx.textBaseline = 'middle';
-  const textWidth = ctx.measureText(ticker.text || '').width;
   ctx.fillText(ticker.text || '', 24, box.height / 2);
 
   fs.writeFileSync(outPath, canvas.toBuffer('image/png'));
@@ -176,7 +192,7 @@ async function renderTextLayer(layer, canvasW, canvasH, outPath, scale = 1) {
   ctx.textAlign = 'center';
 
   if (layer.bgColor) {
-    ctx.font = `${fontSize}px "${config.fonts.body}"`;
+    ctx.font = `${fontSize}px "${pickFont(layer.text, config.fonts.body)}"`;
     const w = ctx.measureText(layer.text || '').width;
     const pad = 12 * scale;
     ctx.globalAlpha = layer.opacity ?? 1;
@@ -187,7 +203,7 @@ async function renderTextLayer(layer, canvasW, canvasH, outPath, scale = 1) {
   }
 
   drawStyledText(ctx, layer.text || '', 0, 0, {
-    font: `${fontSize}px "${config.fonts.body}"`,
+    font: `${fontSize}px "${pickFont(layer.text, config.fonts.body)}"`,
     color: layer.color || '#ffffff',
     shadow: !!layer.shadow,
     stroke: !!layer.stroke,
@@ -288,10 +304,10 @@ async function renderSubscribeBar(subscribeBar, canvasW, canvasH, outPath) {
   ctx.fillRect(0, 0, canvasW, box.height);
   ctx.globalAlpha = 1;
 
-  ctx.font = `bold ${fontSize}px "${config.fonts.body}"`;
+  const text = subscribeBar.text || 'Subscribe, Like & Share!';
+  ctx.font = `bold ${fontSize}px "${pickFont(text, config.fonts.body)}"`;
   ctx.fillStyle = '#ffffff';
   ctx.textBaseline = 'middle';
-  const text = subscribeBar.text || 'Subscribe, Like & Share!';
   ctx.fillText(text, 24, box.height / 2);
 
   fs.writeFileSync(outPath, canvas.toBuffer('image/png'));
@@ -327,7 +343,8 @@ async function renderStingerCard(stinger, canvasW, canvasH, outPath) {
   // the actual canvas width instead, which is correct regardless of aspect ratio or text length.
   let fontSize = barH * 0.42;
   const text = (stinger.text || 'BREAKING NEWS').toUpperCase();
-  ctx.font = `${fontSize}px "NewsDisplay"`;
+  const stingerFont = pickFont(text, 'NewsDisplay');
+  ctx.font = `${fontSize}px "${stingerFont}"`;
   const maxTextWidth = canvasW * 0.88;
   const measuredWidth = ctx.measureText(text).width;
   if (measuredWidth > maxTextWidth) {
@@ -335,7 +352,7 @@ async function renderStingerCard(stinger, canvasW, canvasH, outPath) {
   }
   ctx.textAlign = 'center';
   drawStyledText(ctx, text, canvasW / 2, barY + barH / 2, {
-    font: `${fontSize}px "NewsDisplay"`,
+    font: `${fontSize}px "${stingerFont}"`,
     color: '#ffffff',
     shadow: true,
     stroke: false
@@ -465,8 +482,9 @@ async function renderOutroAssets(outro, canvasW, canvasH, tmpDir) {
 
   let titleSize = minDim * 0.06;
   const channelText = outro.channelText || 'Thanks for watching!';
+  const channelFont = pickFont(channelText, 'NewsDisplay');
   const measureCtx = createCanvas(1, 1).getContext('2d');
-  measureCtx.font = `${titleSize}px "NewsDisplay"`;
+  measureCtx.font = `${titleSize}px "${channelFont}"`;
   const maxTitleWidth = canvasW * 0.88;
   const measuredTitleWidth = measureCtx.measureText(channelText).width;
   if (measuredTitleWidth > maxTitleWidth) {
@@ -478,7 +496,7 @@ async function renderOutroAssets(outro, canvasW, canvasH, tmpDir) {
   const textCtx = textCanvas.getContext('2d');
   textCtx.textAlign = 'center';
   drawStyledText(textCtx, channelText, canvasW / 2, textH / 2, {
-    font: `${titleSize}px "NewsDisplay"`,
+    font: `${titleSize}px "${channelFont}"`,
     color: '#ffffff',
     shadow: false,
     stroke: false
@@ -491,7 +509,10 @@ async function renderOutroAssets(outro, canvasW, canvasH, tmpDir) {
   // a separate canvasW-based formula — guarantees the badges never overlap by construction,
   // regardless of aspect ratio, since it's directly tied to how wide they actually ended up.
   const spacing = badgeW * (1 + GAP_RATIO);
-  const logoSize = minDim * 0.22;
+  // Must be an integer — this feeds the pop-in animation's scale target width (in
+  // introOutro.service.js), and a fractional target there leaves ffmpeg's scale filter with a
+  // residual non-1:1 SAR that concat later refuses to join against the main video's exact 1:1.
+  const logoSize = Math.round(minDim * 0.22);
 
   return {
     backgroundPath,
@@ -530,7 +551,7 @@ async function renderWatermarkText(watermark, bandColor, canvasW, canvasH, outPa
     ctx.fillRect(0, 0, canvasW, box.height);
   }
 
-  ctx.font = `bold ${fontSize}px "${config.fonts.body}"`;
+  ctx.font = `bold ${fontSize}px "${pickFont(watermark.text, config.fonts.body)}"`;
   ctx.fillStyle = watermark.textColor || '#ffffff';
   ctx.globalAlpha = watermark.opacity ?? 0.6;
   ctx.textBaseline = 'middle';
@@ -573,7 +594,7 @@ async function renderNameplate(nameplate, templateBgColor, canvasW, canvasH, out
   const titleSize = box.height * 0.24;
 
   drawStyledText(ctx, nameplate.name || '', padding, box.height * 0.36, {
-    font: `bold ${nameSize}px "${config.fonts.body}"`,
+    font: `bold ${nameSize}px "${pickFont(nameplate.name, config.fonts.body)}"`,
     color: '#ffffff',
     shadow: true,
     stroke: false
@@ -581,7 +602,7 @@ async function renderNameplate(nameplate, templateBgColor, canvasW, canvasH, out
 
   if (nameplate.title) {
     drawStyledText(ctx, nameplate.title, padding, box.height * 0.72, {
-      font: `${titleSize}px "${config.fonts.body}"`,
+      font: `${titleSize}px "${pickFont(nameplate.title, config.fonts.body)}"`,
       color: '#e5e7eb',
       shadow: false,
       stroke: false

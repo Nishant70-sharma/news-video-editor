@@ -105,6 +105,22 @@ function trimInputOptions(clip) {
 }
 
 /**
+ * Normalized audio for one clip's input index, or `durationSec` of silence when that clip has
+ * no audio stream — referencing "[idx:a]" inside complexFilter (unlike "-map 0:a?") hard-fails
+ * if the stream doesn't exist, so every caller that needs a real audio pad (concat/acrossfade,
+ * which require matching stream counts/durations across all inputs) must go through this rather
+ * than assume the clip has audio.
+ */
+function clipAudioPad(filters, idx, hasAudio, durationSec, label) {
+  if (hasAudio) {
+    filters.push(`[${idx}:a]aformat=sample_rates=44100:channel_layouts=stereo[${label}]`);
+  } else {
+    filters.push(`anullsrc=r=44100:cl=stereo,atrim=0:${durationSec},asetpts=PTS-STARTPTS[${label}]`);
+  }
+  return label;
+}
+
+/**
  * Pushes whatever inputs/filters are needed to build the "base" video layer — everything
  * downstream (banner/ticker/text/logo/watermark) composes on top of this one label regardless
  * of source mode, so only this function needs to know about `single` vs `images` vs `split` vs
@@ -247,16 +263,32 @@ function buildBaseVideoStream(project, baseSources, inputs, filters, outW, outH)
       current = next;
     });
 
-    if (!alternate) return { videoLabel: current, audioLabel: null };
+    const audible = clips.map((c) => !!c.hasAudio);
+
+    if (!alternate) {
+      // Simultaneous split screen: mix in whichever of the two clips actually has audio — this
+      // used to always prefer Clip A regardless, which went silent whenever Clip A's own file
+      // had no audio track even though Clip B did.
+      if (!audible[0] && !audible[1]) return { videoLabel: current, audioLabel: null };
+      if (audible[0] && audible[1]) {
+        filters.push(
+          `[${clipInputIdx[0]}:a]aformat=sample_rates=44100:channel_layouts=stereo[splitA0]`,
+          `[${clipInputIdx[1]}:a]aformat=sample_rates=44100:channel_layouts=stereo[splitA1]`,
+          `[splitA0][splitA1]amix=inputs=2:duration=shortest:dropout_transition=0[splitAudio]`
+        );
+        return { videoLabel: current, audioLabel: 'splitAudio' };
+      }
+      const soloIdx = audible[0] ? clipInputIdx[0] : clipInputIdx[1];
+      filters.push(`[${soloIdx}:a]aformat=sample_rates=44100:channel_layouts=stereo[splitAudio]`);
+      return { videoLabel: current, audioLabel: 'splitAudio' };
+    }
 
     // Audio hands off in lockstep with which clip is actively playing: A's audio for its turn,
-    // then B's — a plain concat (not the simultaneous mix a non-alternating split screen keeps
-    // to Clip A only), matching the visual handoff.
-    filters.push(
-      `[${clipInputIdx[0]}:a]aformat=sample_rates=44100:channel_layouts=stereo[splitA0]`,
-      `[${clipInputIdx[1]}:a]aformat=sample_rates=44100:channel_layouts=stereo[splitA1]`,
-      `[splitA0][splitA1]concat=n=2:v=0:a=1[splitAudio]`
-    );
+    // then B's, silence-padded for whichever clip has no audio track so the concat's duration
+    // still lines up with the visual handoff.
+    clipAudioPad(filters, clipInputIdx[0], audible[0], durations[0], 'splitA0');
+    clipAudioPad(filters, clipInputIdx[1], audible[1], durations[1], 'splitA1');
+    filters.push(`[splitA0][splitA1]concat=n=2:v=0:a=1[splitAudio]`);
     return { videoLabel: current, audioLabel: 'splitAudio' };
   }
 
@@ -275,8 +307,10 @@ function buildBaseVideoStream(project, baseSources, inputs, filters, outW, outH)
         `[${idx}:v]scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=${fps}[${vLabel}]`
       );
       // Normalize sample rate/channel layout before concat — the two clips may have been
-      // recorded with different audio formats, and concat requires matching parameters.
-      filters.push(`[${idx}:a]aformat=sample_rates=44100:channel_layouts=stereo[${aLabel}]`);
+      // recorded with different audio formats, and concat requires matching parameters. Silence-
+      // padded when this clip has no audio track at all, since concat/acrossfade need a real pad
+      // of the right duration from every input, not just an optional one.
+      clipAudioPad(filters, idx, !!clip.hasAudio, durations[i], aLabel);
       vLabels.push(vLabel);
       aLabels.push(aLabel);
     });
@@ -302,7 +336,7 @@ function buildBaseVideoStream(project, baseSources, inputs, filters, outW, outH)
     const mainIdx = inputs.length;
     inputs.push({ path: baseSources.main.path, options: trimInputOptions(baseSources.main) });
     filters.push(
-      `[${mainIdx}:v]scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black[pipBase]`
+      `[${mainIdx}:v]scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[pipBase]`
     );
 
     // The small clip is muted by default (matches Split Screen's "Clip A audio only" precedent):
@@ -335,7 +369,7 @@ function buildBaseVideoStream(project, baseSources, inputs, filters, outW, outH)
   const idx = inputs.length;
   inputs.push({ path: baseSources.path, options: trimInputOptions(baseSources) });
   filters.push(
-    `[${idx}:v]scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black[base]`
+    `[${idx}:v]scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1[base]`
   );
   return { videoLabel: 'base', audioLabel: null };
 }

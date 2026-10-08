@@ -90,7 +90,11 @@ function buildAnimatedOutroLayer({ inputs, filters, outroAssets, logoAsset, dura
   const withText = 'outroWithText';
   filters.push(`[${current}][outroTextFaded]overlay=x=0:y=${Math.round(outroAssets.textCy - outroAssets.textH / 2)}[${withText}]`);
 
-  filters.push(`[${withText}]trim=duration=${durationSec},setpts=PTS-STARTPTS,format=yuv420p[outroV]`);
+  // The pop-in icons above scale via a per-frame width expression with h=-1 (auto height), which
+  // can leave ffmpeg's scale filter with a tiny residual SAR instead of a clean 1:1 — invisible on
+  // its own, but concat below requires both segments' video to match exactly. Reassert setsar=1
+  // here so this segment can never be the one that drifts.
+  filters.push(`[${withText}]trim=duration=${durationSec},setpts=PTS-STARTPTS,setsar=1,format=yuv420p[outroV]`);
   filters.push(`anullsrc=channel_layout=stereo:sample_rate=44100,atrim=duration=${durationSec},asetpts=PTS-STARTPTS[outroA]`);
   return { videoLabel: 'outroV', audioLabel: 'outroA' };
 }

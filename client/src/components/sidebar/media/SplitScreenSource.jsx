@@ -87,8 +87,8 @@ export default function SplitScreenSource() {
   const vertical = project.aspectRatio === '9:16';
   const alternate = !isSequential && project.splitAlternate;
 
-  const clipALabel = isSequential ? 'Clip A (plays first)' : alternate ? 'Clip A (plays first turn)' : 'Clip A (audio used)';
-  const clipBLabel = isSequential ? 'Clip B (plays second)' : alternate ? 'Clip B (plays second turn)' : 'Clip B (muted)';
+  const clipALabel = isSequential ? 'Clip A (plays first)' : alternate ? 'Clip A (plays first turn)' : 'Clip A';
+  const clipBLabel = isSequential ? 'Clip B (plays second)' : alternate ? 'Clip B (plays second turn)' : 'Clip B';
 
   return (
     <section>
@@ -98,7 +98,7 @@ export default function SplitScreenSource() {
           ? "Clip A plays fully, then Clip B starts — both clips' audio is kept."
           : alternate
             ? `Both boxes stay on screen (${vertical ? 'stacked top / bottom' : 'side by side'}), but only one clip plays at a time — Clip A plays while Clip B freezes, then they swap. Audio hands off with the video.`
-            : `Two clips playing at once, ${vertical ? 'stacked top / bottom' : 'side by side'}. Only Clip A's audio is used in the export.`}
+            : `Two clips playing at once, ${vertical ? 'stacked top / bottom' : 'side by side'}. Audio from whichever clip(s) actually have a track is mixed in.`}
       </p>
       <div className="space-y-3">
         <ClipSlot label={clipALabel} index={0} />
